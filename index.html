@@ -3,66 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kamera ve Bildirim İzin Yönetimi</title>
+    <title>Yüz Takip Sistemi</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f0f0; }
-        video { width: 80%; max-width: 600px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); background: #000; }
-        .controls { margin-top: 20px; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; background: #007bff; color: white; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
+        #info-box { background: #333; padding: 15px; border-radius: 8px; margin-bottom: 20px; max-width: 600px; text-align: center; border-left: 5px solid #007bff; }
+        .container { position: relative; width: 640px; height: 480px; }
+        video, canvas { position: absolute; left: 0; top: 0; border-radius: 10px; width: 640px; height: 480px; }
+        #startBtn { padding: 12px 25px; font-size: 18px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 5px; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h2>Kamera ve Bildirim Sistemi</h2>
-    
-    <video id="cameraFeed" autoplay playsinline></video>
-
-    <div class="controls">
-        <button id="startBtn">Sistemi Başlat ve İzinleri İste</button>
+    <div id="info-box">
+        <h3>Sistem Açıklaması</h3>
+        <p>Bu uygulama, tarayıcı tabanlı <b>hafif (lightweight)</b> bir yapay zeka modeli kullanarak yüzünüzü gerçek zamanlı olarak tespit eder. Bildirim ve kamera izni verdikten sonra, yüzünüzün etrafında bir takip çerçevesi oluşturulacaktır.</p>
     </div>
 
+    <div class="container">
+        <video id="input_video"></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <button id="startBtn">Sistemi ve İzinleri Başlat</button>
+
     <script>
-        const videoElement = document.getElementById('cameraFeed');
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
         const startBtn = document.getElementById('startBtn');
 
-        // ANA FONKSİYON: Kamera ve Bildirim İzinlerini Yönetir
-        async function initSystem() {
-            try {
-                // --- 1. KISIM: KAMERA İZNİ AÇIKLAMASI ---
-                // navigator.mediaDevices.getUserMedia komutu tarayıcıya "Kamerayı açayım mı?" sorusunu sordurur.
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true, 
-                    audio: false 
-                });
-                
-                // İzin verilirse gelen görüntü (stream) video elementine bağlanır.
-                videoElement.srcObject = stream;
-                console.log("Kamera erişimi başarılı.");
+        // 1. ADIM: Yüz Algılama Modelini Yapılandır (En hafif model: short-range)
+        const faceDetection = new FaceDetection({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+        });
 
-                // --- 2. KISIM: BİLDİRİM İZNİ AÇIKLAMASI ---
-                // Notification.requestPermission() kullanıcıya bildirim gönderip gönderemeyeceğimizi sorar.
-                if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-                    const permission = await Notification.requestPermission();
+        faceDetection.setOptions({
+            model: 'short-range', // Yakın mesafe için en hızlı ve hafif model
+            minDetectionConfidence: 0.5
+        });
+
+        // 2. ADIM: Yüz Bulunduğunda Çerçeve Çizimi
+        faceDetection.onResults((results) => {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.detections.length > 0) {
+                results.detections.forEach(detection => {
+                    const box = detection.boundingBox;
                     
-                    if (permission === "granted") {
-                        new Notification("Sistem Hazır!", { body: "Kamera ve bildirim izinleri başarıyla tanımlandı." });
-                    }
-                } else if (Notification.permission === "granted") {
-                    new Notification("Yeniden Merhaba!", { body: "Kamera şu an aktif." });
+                    // Yüzün etrafına çerçeve çiz
+                    canvasCtx.strokeStyle = '#00FF00';
+                    canvasCtx.lineWidth = 4;
+                    canvasCtx.strokeRect(
+                        box.xCenter * canvasElement.width - (box.width * canvasElement.width / 2),
+                        box.yCenter * canvasElement.height - (box.height * canvasElement.height / 2),
+                        box.width * canvasElement.width,
+                        box.height * canvasElement.height
+                    );
+                });
+            }
+            canvasCtx.restore();
+        });
+
+        // 3. ADIM: İzinleri Al ve Kamerayı Başlat
+        async function startSystem() {
+            try {
+                // Bildirim İzni İsteme
+                if (Notification.permission !== "granted") {
+                    await Notification.requestPermission();
                 }
 
+                // Kamera İzni ve Başlatma
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await faceDetection.send({image: videoElement});
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                canvasElement.width = 640;
+                canvasElement.height = 480;
+                
+                await camera.start();
+                startBtn.style.display = 'none'; // Başladıktan sonra butonu gizle
+                
+                if (Notification.permission === "granted") {
+                    new Notification("Sistem Aktif", { body: "Yüz takip modeli başarıyla yüklendi." });
+                }
             } catch (err) {
-                // --- 3. KISIM: İZİN REDDEDİLİRSE ---
-                // Kullanıcı "Engelle" derse veya donanım bulunamazsa bu blok çalışır.
-                console.error("Hata oluştu veya izin verilmedi:", err);
-                alert("Lütfen kamera ve bildirim izinlerini tarayıcı ayarlarından onaylayın.");
+                alert("Kamera başlatılamadı. Lütfen izinleri kontrol edin.");
+                console.error(err);
             }
         }
 
-        // Butona tıklandığında süreci başlat
-        startBtn.addEventListener('click', () => {
-            initSystem();
-        });
+        startBtn.addEventListener('click', startSystem);
     </script>
 </body>
 </html>
